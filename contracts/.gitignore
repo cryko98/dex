@@ -1,0 +1,10 @@
+node_modules
+artifacts
+cache
+typechain-types
+.env
+.env.local
+
+# Deployment output is environment-specific; commit it deliberately when you
+# want the web app to ship those addresses.
+deployments/31337.json

@@ -1,0 +1,16 @@
+{
+  "name": "rho-dex",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Constant-product DEX for Robinhood Chain: AMM contracts plus a swap and liquidity interface",
+  "scripts": {
+    "setup": "cd contracts && npm install && npm run build && cd ../web && npm install",
+    "chain": "cd contracts && npx hardhat node",
+    "deploy": "cd contracts && npm run deploy:local && npm run seed:local",
+    "simulate": "cd contracts && npm run simulate:local",
+    "test": "cd contracts && npm test",
+    "dev": "cd web && npm run dev",
+    "build": "cd web && npm run build",
+    "typecheck": "cd web && npm run typecheck"
+  }
+}

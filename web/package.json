@@ -1,0 +1,28 @@
+{
+  "name": "rho-dex-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Swap and liquidity interface for the Rho DEX on Robinhood Chain",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "viem": "^2.21.54",
+    "wagmi": "^2.14.1",
+    "lightweight-charts": "^5.0.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.14",
+    "@types/react-dom": "^18.3.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  }
+}
