@@ -29,6 +29,9 @@ contract RhoPair is RhoERC20 {
     /// @dev reserve0 * reserve1 as of the last liquidity event; used for the protocol fee.
     uint256 public kLast;
 
+    /// @notice Block timestamp the pool was initialised, for display and analytics.
+    uint256 public createdAt;
+
     uint256 private unlocked = 1;
 
     event Mint(address indexed sender, uint256 amount0, uint256 amount1);
@@ -58,6 +61,7 @@ contract RhoPair is RhoERC20 {
         require(msg.sender == factory, "Rho: FORBIDDEN");
         token0 = _token0;
         token1 = _token1;
+        createdAt = block.timestamp;
     }
 
     function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) {

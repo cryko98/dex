@@ -15,8 +15,14 @@ export interface Pool {
   decimals1: number;
   reserve0: bigint;
   reserve1: bigint;
-  totalSupply: bigint;
+  /** Supply of the LP token itself. */
+  lpTotalSupply: bigint;
   userLiquidity: bigint;
+  /** Supplies of the underlying tokens, for fully-diluted valuations. */
+  supply0: bigint;
+  supply1: bigint;
+  /** Unix seconds the pool was created. */
+  createdAt: bigint;
   /** The user's share of the pool, 0-1. */
   share: number;
 }
@@ -41,7 +47,7 @@ export function usePools() {
     if (!data) return [];
     return (data as readonly Pool[]).map((pool) => ({
       ...pool,
-      share: pool.totalSupply > 0n ? Number(pool.userLiquidity) / Number(pool.totalSupply) : 0,
+      share: pool.lpTotalSupply > 0n ? Number(pool.userLiquidity) / Number(pool.lpTotalSupply) : 0,
     }));
   }, [data]);
 

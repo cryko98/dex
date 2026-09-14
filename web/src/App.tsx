@@ -1,51 +1,89 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { isAddress } from "viem";
 
 import { Header, type Route } from "./components/Header";
 import { Toasts } from "./components/Toasts";
-import { deployedChainIds } from "./config/contracts";
-import { hasRobinhoodConfig } from "./config/chains";
+import type { Token } from "./config/tokens";
+import { ExplorePage } from "./pages/ExplorePage";
+import { MemesPage } from "./pages/MemesPage";
+import { PairPage } from "./pages/PairPage";
 import { PoolPage } from "./pages/PoolPage";
 import { SwapPage } from "./pages/SwapPage";
+import { TokenPage } from "./pages/TokenPage";
 import { TokensPage } from "./pages/TokensPage";
 
-const ROUTES: Route[] = ["swap", "pool", "tokens"];
+type View = { route: Route; pair?: string; token?: string; category?: string };
 
-function routeFromHash(): Route {
-  const hash = window.location.hash.replace("#", "") as Route;
-  return ROUTES.includes(hash) ? hash : "swap";
+const ROUTES: Route[] = ["explore", "memes", "swap", "pool", "tokens"];
+
+function viewFromHash(): View {
+  const hash = window.location.hash.replace(/^#/, "");
+
+  const [head, tail] = hash.split("/");
+  if (head === "pair" && tail && isAddress(tail)) return { route: "explore", pair: tail };
+  if (head === "token" && tail && isAddress(tail)) return { route: "memes", token: tail };
+  if (head === "memes" && tail) return { route: "memes", category: tail };
+  if (ROUTES.includes(head as Route)) return { route: head as Route };
+  return { route: "explore" };
 }
 
 export function App() {
-  const [route, setRoute] = useState<Route>(routeFromHash);
+  const [view, setView] = useState<View>(viewFromHash);
+  const [swapPair, setSwapPair] = useState<{ tokenIn: Token; tokenOut: Token } | undefined>();
 
   // Keep the hash and the view in step, so links and the back button work.
   useEffect(() => {
-    const onHashChange = () => setRoute(routeFromHash());
+    const onHashChange = () => setView(viewFromHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const navigate = (next: Route) => {
-    window.location.hash = next;
-    setRoute(next);
-  };
+  const go = useCallback((hash: string) => {
+    window.location.hash = hash;
+    setView(viewFromHash());
+  }, []);
 
-  const notConfigured = !hasRobinhoodConfig && deployedChainIds.length === 0;
+  const openPair = useCallback((pair: string) => go(`pair/${pair}`), [go]);
+  const openToken = useCallback((token: string) => go(`token/${token}`), [go]);
+  const openCategory = useCallback((id: string | undefined) => go(id ? `memes/${id}` : "memes"), [go]);
+
+  const tradePair = useCallback(
+    (tokenIn: Token, tokenOut: Token) => {
+      setSwapPair({ tokenIn, tokenOut });
+      go("swap");
+    },
+    [go],
+  );
+
+  const isPairView = view.route === "explore" && !!view.pair;
+  const isTokenView = view.route === "memes" && !!view.token;
+  const narrow = view.route === "swap";
 
   return (
     <div className="app">
-      <Header route={route} onNavigate={navigate} />
+      <Header route={view.route} onNavigate={(next) => go(next)} onOpenPair={openPair} />
 
-      <main className={route === "swap" ? "main main--narrow" : "main"}>
-        {notConfigured && <SetupNotice />}
-        {route === "swap" && <SwapPage />}
-        {route === "pool" && <PoolPage />}
-        {route === "tokens" && <TokensPage />}
+      <main className={narrow ? "main main--narrow" : "main"}>
+        {isPairView && view.pair && (
+          <PairPage pair={view.pair} onBack={() => go("explore")} onTrade={tradePair} />
+        )}
+        {view.route === "explore" && !view.pair && (
+          <ExplorePage onOpenPair={openPair} onOpenCategory={openCategory} />
+        )}
+        {isTokenView && view.token && (
+          <TokenPage address={view.token} onBack={() => go("memes")} onOpenPair={openPair} />
+        )}
+        {view.route === "memes" && !view.token && (
+          <MemesPage onOpenToken={openToken} category={view.category} onCategoryChange={openCategory} />
+        )}
+        {view.route === "swap" && <SwapPage initialPair={swapPair} onOpenPair={openPair} />}
+        {view.route === "pool" && <PoolPage />}
+        {view.route === "tokens" && <TokensPage />}
       </main>
 
       <footer className="footer">
         <div className="footer__inner">
-          <span>Rho DEX · constant-product AMM · 0.30% fee to liquidity providers</span>
+          <span>Rho · constant-product AMM · 0.30% fee to liquidity providers</span>
           <span>Not affiliated with Robinhood Markets, Inc.</span>
         </div>
       </footer>
@@ -55,35 +93,3 @@ export function App() {
   );
 }
 
-/** Shown when neither a network nor a deployment has been configured yet. */
-function SetupNotice() {
-  return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div className="card__title" style={{ marginBottom: 10 }}>
-        Finish the setup
-      </div>
-      <p className="muted small" style={{ marginTop: 0 }}>
-        No network is configured and no contracts have been deployed yet. Copy{" "}
-        <code className="mono">web/.env.example</code> to <code className="mono">web/.env</code> and fill in the
-        Robinhood Chain RPC URL and chain id, then deploy the contracts:
-      </p>
-      <pre
-        className="mono"
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-sm)",
-          padding: 14,
-          overflowX: "auto",
-        }}
-      >
-        {`cd contracts
-npm install
-npm run build
-npx hardhat node          # in a second terminal, for local testing
-npm run deploy:local
-npm run seed:local`}
-      </pre>
-    </div>
-  );
-}

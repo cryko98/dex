@@ -497,9 +497,16 @@ describe("RhoLens", () => {
 
     const pairAddress = await factory.getPair(await tokenA.getAddress(), await tokenB.getAddress());
     const pool = pools.find((p) => p.pair === pairAddress);
-    expect(pool.totalSupply).to.be.greaterThan(0n);
+    expect(pool.lpTotalSupply).to.be.greaterThan(0n);
     expect(pool.userLiquidity).to.be.greaterThan(0n);
     expect([pool.symbol0, pool.symbol1].sort()).to.deep.equal(["AAA", "BBB"]);
+
+    // Underlying supplies and the creation timestamp drive the FDV and age columns.
+    expect(pool.supply0).to.be.greaterThan(0n);
+    expect(pool.supply1).to.be.greaterThan(0n);
+    const now = BigInt((await ethers.provider.getBlock("latest")).timestamp);
+    expect(pool.createdAt).to.be.greaterThan(0n);
+    expect(pool.createdAt).to.be.lessThanOrEqual(now);
   });
 
   it("pages past the end without reverting", async () => {
@@ -507,6 +514,33 @@ describe("RhoLens", () => {
     expect((await lens.getPools(0, 2, deployer.address)).length).to.equal(2);
     expect((await lens.getPools(2, 10, deployer.address)).length).to.equal(1);
     expect((await lens.getPools(99, 10, deployer.address)).length).to.equal(0);
+  });
+
+  it("describes pools from another factory, so the explorer can index the chain", async () => {
+    const { lens, deployer, tokenA, tokenB } = await loadFixture(seededFixture);
+
+    // Stand in for a different DEX deployed on the same chain.
+    const OtherFactory = await ethers.getContractFactory("RhoFactory");
+    const other = await OtherFactory.deploy(deployer.address);
+    await other.createPair(await tokenA.getAddress(), await tokenB.getAddress());
+    const foreignPair = await other.getPair(await tokenA.getAddress(), await tokenB.getAddress());
+
+    const [pool] = await lens.getPoolsByAddress([foreignPair], deployer.address);
+    expect(pool.pair).to.equal(foreignPair);
+    expect([pool.symbol0, pool.symbol1].sort()).to.deep.equal(["AAA", "BBB"]);
+    expect(pool.decimals0).to.equal(18);
+  });
+
+  it("zeroes entries that are not pools instead of reverting the batch", async () => {
+    const { lens, factory, deployer, tokenA, tokenB } = await loadFixture(seededFixture);
+    const realPair = await factory.getPair(await tokenA.getAddress(), await tokenB.getAddress());
+    const notAPair = await tokenA.getAddress();
+
+    const pools = await lens.getPoolsByAddress([realPair, notAPair], deployer.address);
+    expect(pools.length).to.equal(2);
+    expect(pools[0].symbol0).to.not.equal("");
+    expect(pools[1].pair).to.equal(notAPair);
+    expect(pools[1].token0).to.equal(ZeroAddress);
   });
 
   it("batches token metadata, balances and allowances", async () => {

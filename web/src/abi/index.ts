@@ -496,6 +496,19 @@ export const pairAbi = [
   },
   {
     "inputs": [],
+    "name": "createdAt",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "decimals",
     "outputs": [
       {
@@ -1848,12 +1861,27 @@ export const lensAbi = [
           },
           {
             "internalType": "uint256",
-            "name": "totalSupply",
+            "name": "lpTotalSupply",
             "type": "uint256"
           },
           {
             "internalType": "uint256",
             "name": "userLiquidity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "supply0",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "supply1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "createdAt",
             "type": "uint256"
           }
         ],
@@ -1934,12 +1962,123 @@ export const lensAbi = [
           },
           {
             "internalType": "uint256",
-            "name": "totalSupply",
+            "name": "lpTotalSupply",
             "type": "uint256"
           },
           {
             "internalType": "uint256",
             "name": "userLiquidity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "supply0",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "supply1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "createdAt",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct RhoLens.PoolInfo[]",
+        "name": "pools",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "pairs",
+        "type": "address[]"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getPoolsByAddress",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "pair",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "token0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "token1",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "symbol0",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "symbol1",
+            "type": "string"
+          },
+          {
+            "internalType": "uint8",
+            "name": "decimals0",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "decimals1",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint112",
+            "name": "reserve0",
+            "type": "uint112"
+          },
+          {
+            "internalType": "uint112",
+            "name": "reserve1",
+            "type": "uint112"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lpTotalSupply",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "userLiquidity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "supply0",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "supply1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "createdAt",
             "type": "uint256"
           }
         ],

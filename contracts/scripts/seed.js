@@ -54,7 +54,9 @@ async function main() {
   }
 
   // --- create pools ------------------------------------------------------
-  const deadline = Math.floor(Date.now() / 1000) + 3600;
+  // Derive the deadline from chain time: a local node's clock can be well ahead of
+  // wall-clock once scripts have advanced it.
+  const deadline = (await hre.ethers.provider.getBlock("latest")).timestamp + 3600;
   console.log("\nCreating pools:");
   for (const [symbolA, amountA, symbolB, amountB] of POOLS) {
     const a = tokens[symbolA];

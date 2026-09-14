@@ -35,8 +35,13 @@ export function useSwapQuote(
   tokenOut: Token | undefined,
   amount: bigint,
   tradeType: TradeType,
+  /** Quote against another DEX's router instead of our own. */
+  target?: { router: Address; weth: Address },
 ) {
-  const { router, weth, chainId } = useDex();
+  const dex = useDex();
+  const router = target?.router ?? dex.router;
+  const weth = target?.weth ?? dex.weth;
+  const chainId = dex.chainId;
   const { tokens } = useTokenList();
 
   const paths = useMemo<Address[][]>(() => {

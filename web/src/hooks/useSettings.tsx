@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
+/** How much recent history the chain scan should try to cover. */
+export type Timeframe = "15m" | "1h" | "6h";
+
 export interface Settings {
+  timeframe: Timeframe;
   /** Slippage tolerance, in percent. */
   slippage: number;
   /** Transaction deadline, in minutes. */
@@ -11,7 +15,15 @@ export interface Settings {
   showChart: boolean;
 }
 
-const DEFAULTS: Settings = { slippage: 0.5, deadline: 20, unlimitedApproval: false, showChart: true };
+// 1h keeps the first load quick on a rate-limited public RPC while still filling
+// the 5m, 15m and 1h columns.
+const DEFAULTS: Settings = {
+  timeframe: "1h",
+  slippage: 0.5,
+  deadline: 20,
+  unlimitedApproval: false,
+  showChart: true,
+};
 const STORAGE_KEY = "rho.settings";
 
 /** Above this, the UI warns the trade may be sandwiched or badly priced. */
@@ -32,7 +44,9 @@ function load(): Settings {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULTS;
     const parsed = JSON.parse(raw) as Partial<Settings>;
+    const timeframe = parsed.timeframe;
     return {
+      timeframe: timeframe === "15m" || timeframe === "1h" || timeframe === "6h" ? timeframe : DEFAULTS.timeframe,
       slippage: clamp(parsed.slippage ?? DEFAULTS.slippage, 0.01, 50),
       deadline: clamp(parsed.deadline ?? DEFAULTS.deadline, 1, 4320),
       unlimitedApproval: parsed.unlimitedApproval ?? DEFAULTS.unlimitedApproval,

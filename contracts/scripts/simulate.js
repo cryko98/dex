@@ -5,11 +5,21 @@ const hre = require("hardhat");
 const { parseUnits, MaxUint256 } = hre.ethers;
 
 /**
- * Generates trading history on a local chain so the price chart has candles to draw.
- * Local/testnet only - it mines blocks and moves time forward.
+ * Generates trading history across every seeded pool so the explorer has real
+ * volume, transaction counts, makers and price action to display.
+ * Local and testnet only - it mines blocks and moves time forward.
  */
-const TRADES = 120;
-const MINUTES_BETWEEN_TRADES = 20;
+const ROUNDS = 260;
+const SECONDS_BETWEEN_ROUNDS = 260;
+
+/** Rough per-trade notional in the quote asset, to keep price impact sane. */
+const TRADE_SIZES = {
+  USDC: 400,
+  USDT: 400,
+  WETH: 0.15,
+  WBTC: 0.01,
+  HOOD: 900,
+};
 
 async function main() {
   const chainId = Number((await hre.ethers.provider.getNetwork()).chainId);
@@ -17,58 +27,100 @@ async function main() {
   if (!fs.existsSync(file)) throw new Error(`No deployment for chain ${chainId}. Run deploy.js first.`);
 
   const deployment = JSON.parse(fs.readFileSync(file, "utf8"));
-  const { router: routerAddress, weth } = deployment.contracts;
+  const { router: routerAddress, factory: factoryAddress, weth } = deployment.contracts;
   const router = await hre.ethers.getContractAt("RhoRouter", routerAddress);
-  const [trader] = await hre.ethers.getSigners();
+  const factory = await hre.ethers.getContractAt("RhoFactory", factoryAddress);
 
-  const usdc = deployment.tokens.find((t) => t.symbol === "USDC");
-  const hood = deployment.tokens.find((t) => t.symbol === "HOOD");
-  if (!usdc || !hood) throw new Error("Seed the demo tokens first (npm run seed:local).");
+  // Several traders, so the explorer's "makers" count is meaningful.
+  const signers = (await hre.ethers.getSigners()).slice(0, 8);
+  const [funder] = signers;
 
-  for (const token of [usdc, hood]) {
+  const byAddress = new Map(deployment.tokens.map((t) => [t.address.toLowerCase(), t]));
+  const wethToken = deployment.tokens.find((t) => t.address.toLowerCase() === weth.toLowerCase());
+
+  // Fund and approve every trader for every ERC-20 in the deployment.
+  console.log(`Funding ${signers.length} traders…`);
+  for (const token of deployment.tokens) {
+    if (token.address.toLowerCase() === weth.toLowerCase()) continue;
     const contract = await hre.ethers.getContractAt("TestToken", token.address);
-    await (await contract.mint(trader.address, parseUnits("5000000", token.decimals))).wait();
-    await (await contract.approve(routerAddress, MaxUint256)).wait();
+    for (const signer of signers) {
+      await (await contract.mint(signer.address, parseUnits("2000000", token.decimals))).wait();
+      await (await contract.connect(signer).approve(routerAddress, MaxUint256)).wait();
+    }
   }
 
-  console.log(`Simulating ${TRADES} trades on ${chainId}…`);
+  // Every pool the factory knows about, resolved back to token metadata.
+  const pairCount = Number(await factory.allPairsLength());
+  const pools = [];
+  for (let i = 0; i < pairCount; i++) {
+    const pairAddress = await factory.allPairs(i);
+    const pair = await hre.ethers.getContractAt("RhoPair", pairAddress);
+    const token0 = byAddress.get((await pair.token0()).toLowerCase());
+    const token1 = byAddress.get((await pair.token1()).toLowerCase());
+    if (token0 && token1) pools.push({ token0, token1 });
+  }
+  if (pools.length === 0) throw new Error("No pools found. Run seed.js first.");
 
-  for (let i = 0; i < TRADES; i++) {
-    // Random direction and size, so the candles have some shape to them.
-    const buy = Math.random() > 0.5;
-    const size = 0.4 + Math.random() * 1.6;
+  console.log(`Simulating ${ROUNDS} rounds across ${pools.length} pools…`);
+
+  let executed = 0;
+  let skipped = 0;
+
+  for (let round = 0; round < ROUNDS; round++) {
+    const pool = pools[Math.floor(Math.random() * pools.length)];
+    const trader = signers[Math.floor(Math.random() * signers.length)];
+
+    // Random direction, with a mild drift so the charts trend rather than oscillate.
+    const drift = Math.sin(round / 22) * 0.18;
+    const sellBase = Math.random() > 0.5 + drift;
+    const [inToken, outToken] = sellBase ? [pool.token0, pool.token1] : [pool.token1, pool.token0];
+
+    const notional = TRADE_SIZES[inToken.symbol] ?? 100;
+    const size = notional * (0.35 + Math.random() * 1.5);
+    const amountIn = parseUnits(size.toFixed(Math.min(6, inToken.decimals)), inToken.decimals);
     const deadline = (await hre.ethers.provider.getBlock("latest")).timestamp + 600;
 
     try {
-      if (buy) {
-        const amountIn = parseUnits((200 * size).toFixed(6), usdc.decimals);
+      const isNativeIn = inToken.address.toLowerCase() === weth.toLowerCase();
+      if (isNativeIn) {
         await (
-          await router.swapExactTokensForTokens(amountIn, 0, [usdc.address, hood.address], trader.address, deadline)
+          await router
+            .connect(trader)
+            .swapExactETHForTokens(0, [inToken.address, outToken.address], trader.address, deadline, {
+              value: amountIn,
+            })
         ).wait();
       } else {
-        const amountIn = parseUnits((700 * size).toFixed(6), hood.decimals);
         await (
-          await router.swapExactTokensForTokens(amountIn, 0, [hood.address, usdc.address], trader.address, deadline)
+          await router
+            .connect(trader)
+            .swapExactTokensForTokens(
+              amountIn,
+              0,
+              [inToken.address, outToken.address],
+              trader.address,
+              deadline,
+            )
         ).wait();
       }
-
-      // Also trade the WETH pool so that chart has data too.
-      if (i % 4 === 0) {
-        await (
-          await router.swapExactETHForTokens(0, [weth, usdc.address], trader.address, deadline, {
-            value: parseUnits((0.05 * size).toFixed(6), 18),
-          })
-        ).wait();
-      }
+      executed++;
     } catch (error) {
-      console.warn(`  trade ${i} skipped: ${error.shortMessage ?? error.message}`);
+      skipped++;
+      if (skipped < 4) console.warn(`  round ${round} skipped: ${error.shortMessage ?? error.message}`);
     }
 
-    await hre.network.provider.send("evm_increaseTime", [MINUTES_BETWEEN_TRADES * 60]);
+    // Occasionally top the funder's wrapped balance back up, so WETH pools stay tradable.
+    if (wethToken && round % 50 === 0) {
+      const wethContract = await hre.ethers.getContractAt("WETH9", weth);
+      await (await wethContract.connect(funder).deposit({ value: parseUnits("5", 18) })).wait();
+      await (await wethContract.connect(funder).approve(routerAddress, MaxUint256)).wait();
+    }
+
+    await hre.network.provider.send("evm_increaseTime", [SECONDS_BETWEEN_ROUNDS]);
     await hre.network.provider.send("evm_mine");
   }
 
-  console.log("Done. Reload the web app to see the chart fill in.");
+  console.log(`Done: ${executed} trades, ${skipped} skipped. Reload the app to see the explorer fill in.`);
 }
 
 main().catch((error) => {

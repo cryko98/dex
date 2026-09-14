@@ -75,8 +75,8 @@ export function PoolPage() {
               </thead>
               <tbody>
                 {myPools.map((pool) => {
-                  const pooled0 = pool.totalSupply > 0n ? (pool.userLiquidity * pool.reserve0) / pool.totalSupply : 0n;
-                  const pooled1 = pool.totalSupply > 0n ? (pool.userLiquidity * pool.reserve1) / pool.totalSupply : 0n;
+                  const pooled0 = pool.lpTotalSupply > 0n ? (pool.userLiquidity * pool.reserve0) / pool.lpTotalSupply : 0n;
+                  const pooled1 = pool.lpTotalSupply > 0n ? (pool.userLiquidity * pool.reserve1) / pool.lpTotalSupply : 0n;
 
                   return (
                     <tr key={pool.pair}>

@@ -27,6 +27,7 @@ import {
   parseAmount,
 } from "../lib/format";
 import { GAS_RESERVE, wethAbi } from "../lib/weth";
+import type { SwapTarget } from "../lib/swapTarget";
 import { AlertIcon, ArrowDown, ChevronDown, SpinnerIcon } from "./Icons";
 import { TokenAvatar } from "./TokenAvatar";
 import { TokenSelect } from "./TokenSelect";
@@ -37,11 +38,19 @@ interface Props {
   tokenIn: Token | undefined;
   tokenOut: Token | undefined;
   onChangeTokens: (tokenIn: Token | undefined, tokenOut: Token | undefined) => void;
+  /** Trade through another DEX's verified router instead of our own. */
+  target?: SwapTarget;
 }
 
-export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
+export function SwapCard({ tokenIn, tokenOut, onChangeTokens, target }: Props) {
   const { address, isConnected } = useAccount();
-  const { router, weth, chainId, chain, isSupported, native } = useDex();
+  const dex = useDex();
+  const { chainId, chain, native } = dex;
+  const router = target?.router ?? dex.router;
+  const weth = target?.weth ?? dex.weth;
+  // A discovered router is verified against its factory, so it counts as supported.
+  const isSupported = target ? true : dex.isSupported;
+  const fot = !!target?.feeOnTransfer;
   const settings = useSettings();
   const { tokens } = useTokenList();
   const { balances, refetch: refetchBalances } = useTokenBalances(tokens);
@@ -75,6 +84,7 @@ export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
     tokenOut,
     wrapMode ? 0n : typedRaw,
     tradeType,
+    target,
   );
 
   // Wrapping is 1:1, so mirror the typed amount straight across.
@@ -120,6 +130,7 @@ export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
     // Wrapping WETH -> ETH calls the token itself, so no router allowance is needed.
     wrapMode === "unwrap" ? undefined : tokenIn,
     approvalAmount,
+    router as Address | undefined,
   );
 
   const insufficientBalance = balanceIn !== undefined && amountIn > balanceIn;
@@ -208,7 +219,7 @@ export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
     const nativeOut = !!tokenOut.isNative;
 
     return run({
-      pendingTitle: `Swapping ${tokenIn.symbol} for ${tokenOut.symbol}`,
+      pendingTitle: `Swapping ${tokenIn.symbol} for ${tokenOut.symbol}${target ? ` on ${target.dex}` : ""}`,
       successTitle: `Swapped ${formatAmount(amountIn, tokenIn.decimals, 4)} ${tokenIn.symbol} for ${formatAmount(
         amountOut,
         tokenOut.decimals,
@@ -216,6 +227,30 @@ export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
       )} ${tokenOut.symbol}`,
       send: () => {
         const base = { address: router as Address, abi: routerAbi } as const;
+
+        if (tradeType === "exactIn" && fot) {
+          // Taxed memecoins revert on the exact-amount entry points; these tolerate them.
+          if (nativeIn) {
+            return writeContractAsync({
+              ...base,
+              functionName: "swapExactETHForTokensSupportingFeeOnTransferTokens",
+              args: [minReceived, path, address, deadline],
+              value: amountIn,
+            });
+          }
+          if (nativeOut) {
+            return writeContractAsync({
+              ...base,
+              functionName: "swapExactTokensForETHSupportingFeeOnTransferTokens",
+              args: [amountIn, minReceived, path, address, deadline],
+            });
+          }
+          return writeContractAsync({
+            ...base,
+            functionName: "swapExactTokensForTokensSupportingFeeOnTransferTokens",
+            args: [amountIn, minReceived, path, address, deadline],
+          });
+        }
 
         if (tradeType === "exactIn") {
           if (nativeIn) {
@@ -268,7 +303,8 @@ export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
   const action = resolveAction({
     isConnected,
     isSupported,
-    hasContracts: hasDeployment(chainId),
+    hasContracts: !!target || hasDeployment(chainId),
+    fotExactOut: fot && tradeType === "exactOut",
     chainName: chain?.name,
     tokenIn,
     tokenOut,
@@ -283,6 +319,7 @@ export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
   });
 
   const symbolFor = (address: Address) =>
+    target?.symbols?.[address.toLowerCase()] ??
     tokens.find((t) => t.address.toLowerCase() === address.toLowerCase())?.symbol ??
     (weth && address.toLowerCase() === weth.toLowerCase() ? "WETH" : `${address.slice(0, 6)}…`);
 
@@ -315,6 +352,7 @@ export function SwapCard({ tokenIn, tokenOut, onChangeTokens }: Props) {
           value={outputValue}
           balance={balanceOut}
           loading={quoteLoading && tradeType === "exactOut"}
+          readOnly={fot}
           onChange={(value) => {
             setTradeType("exactOut");
             setOutputValue(value);
@@ -447,12 +485,25 @@ interface FieldProps {
   balance: bigint | undefined;
   loading?: boolean;
   showMax?: boolean;
+  /** Display only: the other field drives the trade. */
+  readOnly?: boolean;
   onChange: (value: string) => void;
   onPick: () => void;
   onMax?: () => void;
 }
 
-function AmountField({ label, token, value, balance, loading, showMax, onChange, onPick, onMax }: FieldProps) {
+function AmountField({
+  label,
+  token,
+  value,
+  balance,
+  loading,
+  showMax,
+  readOnly,
+  onChange,
+  onPick,
+  onMax,
+}: FieldProps) {
   return (
     <div className="field">
       <div className="field__label">
@@ -467,7 +518,9 @@ function AmountField({ label, token, value, balance, loading, showMax, onChange,
           placeholder="0"
           value={value}
           spellCheck={false}
+          readOnly={readOnly}
           onChange={(event) => {
+            if (readOnly) return;
             const next = event.target.value.replace(/,/g, ".");
             if (next === "" || /^\d*\.?\d*$/.test(next)) onChange(next);
           }}
@@ -530,6 +583,7 @@ function resolveAction(state: {
   noRoute: boolean;
   impactBlocked: boolean;
   isBusy: boolean;
+  fotExactOut: boolean;
 }): Action {
   if (!state.isConnected) return { kind: "disabled", label: "Connect your wallet to trade" };
   if (!state.isSupported) {
@@ -550,6 +604,7 @@ function resolveAction(state: {
     return { kind: "go", label: verb };
   }
 
+  if (state.fotExactOut) return { kind: "disabled", label: "Enter the amount you pay" };
   if (state.quoteLoading) return { kind: "disabled", label: "Finding the best route…" };
   if (state.noRoute) return { kind: "disabled", label: "No route available" };
   if (state.impactBlocked) return { kind: "disabled", label: "Price impact too high" };

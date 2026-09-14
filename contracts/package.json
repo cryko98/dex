@@ -14,7 +14,9 @@
     "seed:robinhoodTestnet": "hardhat run scripts/seed.js --network robinhoodTestnet",
     "export:abi": "node scripts/export-abi.js",
     "sync:web": "node scripts/sync-web.js",
-    "simulate:local": "hardhat run scripts/simulate.js --network localhost"
+    "simulate:local": "hardhat run scripts/simulate.js --network localhost",
+    "seed:external": "hardhat run scripts/seed-external.js --network localhost",
+    "deploy:lens": "hardhat run scripts/deploy-lens.js --network localhost"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

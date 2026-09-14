@@ -7,12 +7,15 @@ import type { Token } from "../config/tokens";
 import { useDex } from "./useDex";
 
 /**
- * Tracks whether the router may move `token` on the user's behalf, and exposes
- * the approval transaction. Native currency never needs one.
+ * Tracks whether `spender` (our router by default, or another DEX's discovered
+ * router) may move `token` on the user's behalf, and exposes the approval
+ * transaction. Native currency never needs one.
  */
-export function useApproval(token: Token | undefined, amount: bigint) {
+export function useApproval(token: Token | undefined, amount: bigint, spender?: Address) {
   const { address } = useAccount();
-  const { router, chainId } = useDex();
+  const dex = useDex();
+  const router = spender ?? dex.router;
+  const chainId = dex.chainId;
   const { writeContractAsync, isPending } = useWriteContract();
 
   const needsContract = !!token && !token.isNative && !!router && !!address;

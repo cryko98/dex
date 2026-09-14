@@ -38,10 +38,10 @@ export function RemoveLiquidity({ pool, onClose, onDone }: Props) {
 
   // What the burn returns, pro rata on the current reserves.
   const expected = useMemo(() => {
-    if (!pool || pool.totalSupply === 0n) return { amount0: 0n, amount1: 0n };
+    if (!pool || pool.lpTotalSupply === 0n) return { amount0: 0n, amount1: 0n };
     return {
-      amount0: (liquidity * pool.reserve0) / pool.totalSupply,
-      amount1: (liquidity * pool.reserve1) / pool.totalSupply,
+      amount0: (liquidity * pool.reserve0) / pool.lpTotalSupply,
+      amount1: (liquidity * pool.reserve1) / pool.lpTotalSupply,
     };
   }, [liquidity, pool]);
 

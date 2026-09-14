@@ -121,3 +121,9 @@ export const DropIcon = (p: IconProps) => (
     <path d="M12 2.7 6.6 8.1a7.6 7.6 0 1 0 10.8 0z" />
   </Icon>
 );
+
+export const RefreshIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+  </Icon>
+);

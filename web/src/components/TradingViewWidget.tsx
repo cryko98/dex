@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { IntervalKey } from "../hooks/usePoolCandles";
+import type { IntervalKey } from "../lib/candles";
 
 /**
  * Symbols TradingView carries for the assets this DEX lists. Anything not in this

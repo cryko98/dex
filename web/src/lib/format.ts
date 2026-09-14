@@ -107,3 +107,61 @@ export function formatRate(rate: number | undefined): string {
   if (rate < 0.0001) return rate.toExponential(2);
   return trimZeros(rate.toFixed(6));
 }
+
+/** Compact USD for table cells: $1.2K, $34.5M. */
+export function formatCompactUsd(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  if (value === 0) return "$0";
+  const abs = Math.abs(value);
+  if (abs < 0.01) return "<$0.01";
+  if (abs < 1000) return `$${value.toFixed(2)}`;
+  return `$${value.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * A token price in USD. Sub-cent prices need more decimals than the two a currency
+ * formatter gives, so significant digits drive the precision instead.
+ */
+export function formatPriceUsd(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return "—";
+  if (value >= 1000) return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  if (value >= 1) return `$${value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
+
+  const digits = Math.min(12, Math.max(4, Math.ceil(-Math.log10(value)) + 3));
+  return `$${value.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
+/** Signed percentage for change columns. */
+export function formatChange(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  const sign = value > 0 ? "+" : "";
+  if (Math.abs(value) >= 1000) return `${sign}${Math.round(value).toLocaleString("en-US")}%`;
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+/** Compact count: 1.2K txns. */
+export function formatCount(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  if (value < 1000) return String(value);
+  return value.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
+}
+
+/** How long ago, as a short label: 4s, 12m, 3h, 5d. */
+export function formatAge(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  if (seconds < 86400 * 365) return `${Math.floor(seconds / 86400)}d`;
+  return `${Math.floor(seconds / (86400 * 365))}y`;
+}
+
+/** Token amounts already converted to a number, for the trade list. */
+export function formatTokenAmount(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  if (value === 0) return "0";
+  const abs = Math.abs(value);
+  if (abs < 0.0001) return value.toExponential(2);
+  if (abs >= 1000) return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return trimZeros(value.toFixed(4));
+}

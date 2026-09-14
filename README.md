@@ -1,201 +1,161 @@
-# Rho DEX
+# Rho — memecoin screener & DEX for Robinhood Chain
 
-A complete decentralised exchange for Robinhood Chain: a constant-product AMM
-(`x * y = k`, 0.30% fee) in Solidity, plus a swap and liquidity interface in the
-Robinhood neon-lime look.
+A DexScreener-style explorer for **Robinhood Chain** (Arbitrum Orbit L2, chain id
+4663), plus a swap interface and our own AMM. It lists every coin trading on the
+chain — including memecoins launched on other DEXes — without an indexer or an API
+key: it reads the chain directly over JSON-RPC and Multicall3.
 
-Two packages:
-
-| Path        | What it is                                                                 |
-| ----------- | -------------------------------------------------------------------------- |
-| `contracts` | Factory, pair, router and a read-only lens contract. Hardhat, 30 tests.      |
-| `web`       | React + TypeScript + wagmi/viem frontend with a TradingView price chart.     |
-
-> Not affiliated with Robinhood Markets, Inc. "Robinhood Chain" here just names the
-> EVM network the contracts are deployed to.
+> Not affiliated with Robinhood Markets, Inc.
 
 ---
 
 ## What it does
 
-**Swap**
+**Explore** — every pool with recent trades on the chain, from every DEX. Price, age,
+transactions (buys/sells), volume, makers, 5m/15m/1h/6h change, liquidity, FDV. Pools
+are discovered from on-chain `Swap` events and attributed to their DEX by asking each
+pair for its `factory()`. Nothing is configured per DEX.
 
-- Exact-in and exact-out trades, native currency on either side.
-- Automatic routing: every direct and one-hop path is quoted in a single multicall
-  and the best one wins.
-- Price impact, LP fee, minimum received, slippage and the full route, all shown
-  before you sign.
-- ETH ⇄ WETH is detected and executed as a wrap, not a trade.
-- Import any ERC-20 by address.
+**Memecoins** — the community-token screener:
 
-**Pool**
+- **Total memecoin volume**, active coins, transactions, distinct makers and
+  liquidity across the whole chain, for the selected timeframe.
+- **Trending themes bar** — Dogs, Cats, Chinese coins, Frogs, AI, Robinhood-themed,
+  Politics… ranked by how many live coins sit in each, with volume and a
+  volume-weighted change. Themes come from keyword matching on names and symbols
+  (`web/src/lib/categories.ts`); click one to filter.
+- **Heat** — a 0-100 rank blend of volume, transactions, makers and buy pressure.
+- **Risk flags** — `rugged` when liquidity is essentially gone while the coin still
+  trades (anything bought cannot be sold back), `thin` under $5K liquidity. Rugged
+  coins are penalised in heat so they cannot lead the board; a **Live** filter hides
+  them.
 
-- Add liquidity to an existing pool at its current ratio, or create a new pool and
-  set the starting price.
-- Remove any percentage of a position, with the WETH side unwrapped back to native
-  currency automatically.
-- Your positions and every pool on the chain, with live reserves and prices.
+**Token page** — one coin, all its pools: TradingView chart (Lightweight Charts, built
+from the pool's own fills; USD or quote-denominated), performance grid, buy-pressure
+bar, pools list, live transaction feed, and a **swap panel**.
 
-**Chart**
+**Swap on any DEX, without deploying anything** — the index reads the `sender` of each
+`Swap` event (the contract that called the pool), takes each factory's busiest caller,
+and verifies it is that factory's router by calling `factory()` and `WETH()` on it. A
+verified router is a standard UniswapV2Router02, so the app trades through it with
+the fee-on-transfer-tolerant entry points (taxed memecoins work). On Robinhood Chain
+mainnet the dominant memecoin DEX's router is found this way; pools whose DEX has no
+verifiable router are marked *view only*.
 
-- **Pool** — candles built from this DEX's own `Swap` events, so every pair has a
-  chart, including tokens no price feed lists. Drawn with TradingView's
-  Lightweight Charts.
-- **Market** — TradingView's Advanced Chart, for pairs that map to a listed symbol
-  (ETH/USDC, WBTC/USDC and similar).
+**Rho AMM** — our own factory/router/pair contracts (Solidity 0.8, 32 tests). When
+deployed on a chain, the Swap and Pool tabs trade through it and its pools show as
+"Rho" in the explorer. Not required for the explorer or for swapping on other DEXes.
 
 ---
 
-## Quick start (local chain)
+## How the data works (and its limits)
+
+The browser talks to the chain through `/api/rpc/<chain>`, a same-origin proxy
+(`api/rpc/[chain].js`, a Vercel edge function; mirrored by Vite's dev proxy). The
+public Robinhood endpoint sometimes returns a duplicated CORS header that browsers
+reject, and the proxy also lets a provider key stay server-side.
+
+Per refresh the index:
+
+1. scans `Swap` logs backwards from the head for the selected timeframe (15m / 1h /
+   6h), with adaptive chunk sizes — public RPCs cap a request at 10,000 logs;
+2. describes the busiest pools (up to 250) with Multicall3: `token0/1`, reserves,
+   `factory()`, token symbol/name/decimals/supply;
+3. verifies routers from the swap senders;
+4. reads `PairCreated` over a bounded range for pool ages;
+5. prices everything in USD from stablecoin pools outward (USDG on Robinhood Chain),
+   preferring the deepest pool for each token.
+
+Block timestamps are interpolated from the measured block time (~0.1 s on Robinhood
+Chain) rather than fetched per block. Because the RPC caps log history, a window
+longer than what the scan reached is shown as `—`, never as an understated number,
+and the page says how far back it actually got. A full 24h view on a chain this busy
+needs an indexer; this app is deliberately indexer-free.
+
+---
+
+## Run it
 
 ```bash
 git clone https://github.com/cryko98/dex.git
 cd dex
-npm run setup
+npm run setup      # installs contracts + web, compiles, exports ABIs
+npm run dev        # http://localhost:5173 — reads Robinhood Chain mainnet
 ```
 
-Then, in three terminals:
-
-```bash
-npm run chain        # terminal 1: local EVM node on :8545
-npm run deploy       # terminal 2: deploy + seed demo tokens and pools
-npm run dev          # terminal 3: web app on :5173
-```
-
-Point your wallet at `http://127.0.0.1:8545` (chain id `31337`) and import one of
-the private keys the node printed.
-
-Optional: `npm run simulate` generates ~120 trades so the price chart has history.
-
----
-
-## Deploying to Robinhood Chain
-
-The repo ships no guesses about the network — fill in the real values.
-
-**1. Contracts**
-
-```bash
-cd contracts
-cp .env.example .env
-```
-
-```ini
-ROBINHOOD_RPC_URL=https://<rpc-endpoint>
-ROBINHOOD_CHAIN_ID=<chain id>
-PRIVATE_KEY=<deployer key, funded with gas>
-
-# Set this if the chain already has a canonical wrapped-native token.
-# Leave it empty to deploy the bundled WETH9.
-WETH_ADDRESS=
-```
-
-```bash
-npm run build
-npm run deploy:robinhood
-```
-
-Addresses land in `contracts/deployments/<chainId>.json` and are copied into
-`web/src/config/deployments.json` automatically.
-
-**2. Web app**
-
-```bash
-cd web
-cp .env.example .env
-```
-
-```ini
-VITE_CHAIN_ID=<chain id>
-VITE_CHAIN_NAME=Robinhood Chain
-VITE_RPC_URL=https://<rpc-endpoint>
-VITE_EXPLORER_URL=https://<explorer>
-VITE_NATIVE_SYMBOL=ETH
-VITE_ENABLE_LOCALHOST=false
-```
-
-```bash
-npm run build
-```
+No wallet or key is needed to browse. To trade, connect an injected wallet
+(MetaMask, Rabby…) on Robinhood Chain.
 
 ### Vercel
 
-`vercel.json` is already set up: import the repo, and Vercel builds `web/` and
-serves `web/dist`. Add the `VITE_*` variables above under **Settings →
-Environment Variables**, then redeploy so the build picks them up.
+`vercel.json` builds `web/` and serves `web/dist`; the edge function under `api/`
+deploys with it. Optional environment variables:
 
-The contract addresses are baked in at build time from
-`web/src/config/deployments.json`, so commit that file after deploying the
-contracts and redeploy the site.
+| Variable | Purpose |
+| --- | --- |
+| `RPC_MAINNET_URL`, `RPC_TESTNET_URL` | Upstream for the proxy (server-side). Point at Alchemy/dRPC/QuickNode for higher limits; defaults to the public endpoints. |
+| `VITE_RPC_URL`, `VITE_TESTNET_RPC_URL` | Bypass the proxy and read a given endpoint directly from the browser. |
+| `VITE_ENABLE_TESTNET` | `false` hides the testnet from the network picker. |
+| `VITE_ENABLE_LOCALHOST` | `true` adds the local Hardhat chain. |
+| `VITE_DEX_NAMES` | JSON map of factory address → display name, e.g. `{"0x8bce…":"Launchpad"}`. Unnamed factories show as `DEX 8BCE`. |
+| `VITE_CHAIN_ID` + `VITE_CUSTOM_RPC_URL` (+ `VITE_CHAIN_NAME`, `VITE_EXPLORER_URL`, `VITE_MULTICALL3`) | Add an extra EVM network. |
+
+### Network details
+
+| | Mainnet | Testnet |
+| --- | --- | --- |
+| Chain id | 4663 | 46630 |
+| Public RPC | `https://rpc.mainnet.chain.robinhood.com` | `https://rpc.testnet.chain.robinhood.com` |
+| Explorer | robinhoodchain.blockscout.com | explorer.testnet.chain.robinhood.com |
+| Multicall3 | `0xcA11…CA11` (canonical) | same |
+
+Source: Robinhood's docs (`docs.robinhood.com/chain/connecting`).
 
 ---
 
-## Contracts
-
-| Contract     | Role                                                                       |
-| ------------ | -------------------------------------------------------------------------- |
-| `RhoFactory` | Deploys one canonical pool per pair via CREATE2, holds the registry.        |
-| `RhoPair`    | The pool: mint, burn, swap, a TWAP oracle, and an optional protocol fee.    |
-| `RhoRouter`  | Slippage and deadline checks, multi-hop routing, native-currency wrapping.  |
-| `RhoLens`    | Read-only aggregation, so the UI loads every pool in one call.              |
-| `RhoLibrary` | Pricing maths shared by the router and off-chain quoting.                   |
-
-Design notes:
-
-- Uniswap V2's proven maths, ported to Solidity 0.8. Overflow checks are on
-  everywhere except the two places V2 relies on wrapping (the TWAP accumulator and
-  the block-timestamp delta), which stay in `unchecked` blocks.
-- `RhoLibrary.pairFor` reads `factory.getPair` instead of recomputing the CREATE2
-  address. That costs one `SLOAD` and removes the init-code-hash constant that
-  silently breaks whenever compiler settings change.
-- The first `MINIMUM_LIQUIDITY` (1000 wei) of LP supply is burned to a dead
-  address, so the pool can never be drained to an empty, manipulable state.
-- The protocol fee is off by default. `setFeeTo` turns on 1/6th of the LP fee;
-  note that `kLast` only starts tracking at the first liquidity event *after* it
-  is enabled.
-- Fee-on-transfer tokens are supported through the
-  `...SupportingFeeOnTransferTokens` router entry points.
+## Deploying the Rho AMM (optional)
 
 ```bash
 cd contracts
-npm test
+cp .env.example .env          # PRIVATE_KEY, ROBINHOOD_RPC_URL, ROBINHOOD_CHAIN_ID=4663
+npm run build
+npm run deploy:robinhood      # writes deployments/4663.json + web/src/config/deployments.json
 ```
 
+Then commit `web/src/config/deployments.json` and redeploy the site. Local
+development against a Hardhat node: `npm run chain`, `npm run deploy`,
+`npm run seed:external` (a second "DEX" with community tokens, to exercise
+discovery), `npm run simulate`.
+
+### Contracts
+
+| Contract | Role |
+| --- | --- |
+| `RhoFactory` | One canonical pool per pair via CREATE2. |
+| `RhoPair` | Constant-product pool, 0.30% fee, TWAP oracle, `createdAt`, optional protocol fee. |
+| `RhoRouter` | UniswapV2Router02-compatible, including fee-on-transfer variants. |
+| `RhoLens` | Read-only aggregation; describes pools from any V2-style factory. |
+
+```bash
+cd contracts && npm test     # 32 passing
 ```
-  30 passing
-```
 
-Covers pool creation and sorting, LP accounting, the `k` invariant, the TWAP
-oracle, the protocol fee, reentrancy through the flash-swap callback, every
-router swap and liquidity path, EIP-2612 permit, mixed decimals, multi-hop
-routing, slippage floors, deadlines and ETH refunds.
-
-### Not audited
-
-This is working, tested code, not audited code. Do not put funds you care about
-into it without a professional review.
+Not audited. Do not put funds you care about into it without a professional review.
 
 ---
 
 ## Layout
 
 ```
-contracts/
-  contracts/
-    core/        RhoFactory, RhoPair, RhoERC20
-    periphery/   RhoRouter, RhoLens
-    libraries/   RhoLibrary, Math, UQ112x112, TransferHelper
-    mocks/       WETH9, TestToken, ReentrantCallee
-  scripts/       deploy, seed, simulate, export-abi, sync-web
-  test/          dex.test.js
-web/
-  src/
-    abi/         generated from the Hardhat artifacts
-    components/  swap card, chart, liquidity modals, token picker
-    config/      chains, wagmi, tokens, deployed addresses
-    hooks/       quoting, pools, balances, approvals, transactions
-    pages/       Swap, Pool, Tokens
+api/rpc/[chain].js      same-origin JSON-RPC proxy (Vercel edge)
+contracts/              Hardhat project: core/, periphery/, libraries/, mocks/, scripts/, test/
+web/src/
+  hooks/useChainIndex   swap scan → pools → routers → ages (the indexer-free index)
+  hooks/usePairStats    per-pool price, liquidity, FDV, windowed stats, trades
+  hooks/useTokenStats   per-token roll-up, themes, heat, risk, memecoin totals
+  lib/logScanner        adaptive backwards getLogs
+  lib/poolReader        Multicall3 pool/token description
+  lib/pricing           USD pricing graph, quote/base resolution, memecoin heuristic
+  lib/categories        theme keywords and ranking
+  pages/                Explore, Memes, Token, Pair, Swap, Pool, Tokens
 ```
-
-The web app never hand-writes an ABI: `contracts/scripts/export-abi.js` generates
-`web/src/abi/index.ts` from the compiled artifacts as part of `npm run build`.

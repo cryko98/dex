@@ -6,26 +6,35 @@ import { hasDeployment } from "../config/contracts";
 import { useDex } from "../hooks/useDex";
 import { formatAmount, shortenAddress } from "../lib/format";
 import { ChevronDown, LogoMark, WalletIcon } from "./Icons";
+import { GlobalSearch } from "./GlobalSearch";
 import { SettingsMenu } from "./SettingsMenu";
 
-export type Route = "swap" | "pool" | "tokens";
+export type Route = "explore" | "memes" | "swap" | "pool" | "tokens";
 
 const TABS: { id: Route; label: string }[] = [
+  { id: "explore", label: "Explore" },
+  { id: "memes", label: "Memecoins" },
   { id: "swap", label: "Swap" },
   { id: "pool", label: "Pool" },
   { id: "tokens", label: "Tokens" },
 ];
 
-export function Header({ route, onNavigate }: { route: Route; onNavigate: (route: Route) => void }) {
+interface HeaderProps {
+  route: Route;
+  onNavigate: (route: Route) => void;
+  onOpenPair: (pair: string) => void;
+}
+
+export function Header({ route, onNavigate, onOpenPair }: HeaderProps) {
   return (
     <header className="header">
       <div className="header__inner">
         <a
           className="brand"
-          href="#swap"
+          href="#explore"
           onClick={(event) => {
             event.preventDefault();
-            onNavigate("swap");
+            onNavigate("explore");
           }}
         >
           <span className="brand__mark">
@@ -46,7 +55,7 @@ export function Header({ route, onNavigate }: { route: Route; onNavigate: (route
           ))}
         </nav>
 
-        <div className="header__spacer" />
+        <GlobalSearch onOpenPair={onOpenPair} />
 
         <div className="header__actions">
           <ChainSelector />

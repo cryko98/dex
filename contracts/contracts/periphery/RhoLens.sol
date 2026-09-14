@@ -7,6 +7,9 @@ import "../interfaces/IERC20.sol";
 
 /// @title RhoLens
 /// @notice Read-only aggregation so the UI can load every pool in a couple of calls.
+/// @dev Every optional read is a staticcall with a fallback, so this also describes
+///      pools from other Uniswap-V2-style factories on the same chain. That is what
+///      lets the explorer index the whole chain rather than just Rho's own pairs.
 contract RhoLens {
     struct PoolInfo {
         address pair;
@@ -18,8 +21,14 @@ contract RhoLens {
         uint8 decimals1;
         uint112 reserve0;
         uint112 reserve1;
-        uint256 totalSupply;
+        /// @dev Supply of the LP token itself.
+        uint256 lpTotalSupply;
         uint256 userLiquidity;
+        /// @dev Supplies of the underlying tokens, for fully-diluted valuations.
+        uint256 supply0;
+        uint256 supply1;
+        /// @dev When the pool was created, for the age column.
+        uint256 createdAt;
     }
 
     struct TokenInfo {
@@ -58,11 +67,33 @@ contract RhoLens {
         info.token1 = p.token1();
         info.symbol0 = _symbol(info.token0);
         info.symbol1 = _symbol(info.token1);
-        info.decimals0 = IERC20(info.token0).decimals();
-        info.decimals1 = IERC20(info.token1).decimals();
+        info.decimals0 = _decimals(info.token0);
+        info.decimals1 = _decimals(info.token1);
         (info.reserve0, info.reserve1,) = p.getReserves();
-        info.totalSupply = p.totalSupply();
+        info.lpTotalSupply = p.totalSupply();
         info.userLiquidity = user == address(0) ? 0 : p.balanceOf(user);
+        info.supply0 = _totalSupply(info.token0);
+        info.supply1 = _totalSupply(info.token1);
+        info.createdAt = _createdAt(pair);
+    }
+
+    /// @notice Describes any list of pairs, including ones from other factories.
+    /// @dev Entries that are not V2-style pools come back zeroed rather than reverting.
+    function getPoolsByAddress(address[] calldata pairs, address user)
+        external
+        view
+        returns (PoolInfo[] memory pools)
+    {
+        pools = new PoolInfo[](pairs.length);
+        for (uint256 i; i < pairs.length; i++) {
+            (bool ok, bytes memory data) =
+                address(this).staticcall(abi.encodeWithSelector(this.getPool.selector, pairs[i], user));
+            if (ok && data.length > 0) {
+                pools[i] = abi.decode(data, (PoolInfo));
+            } else {
+                pools[i].pair = pairs[i];
+            }
+        }
     }
 
     /// @notice Metadata plus balance/allowance for a list of tokens in one call.
@@ -83,6 +114,24 @@ contract RhoLens {
                 allowance: user == address(0) ? 0 : IERC20(t).allowance(user, spender)
             });
         }
+    }
+
+    /// @dev Pools from other factories have no createdAt; report 0 rather than reverting.
+    function _createdAt(address pair) internal view returns (uint256) {
+        (bool ok, bytes memory data) = pair.staticcall(abi.encodeWithSelector(IRhoPair.createdAt.selector));
+        return ok && data.length >= 32 ? abi.decode(data, (uint256)) : 0;
+    }
+
+    function _decimals(address token) internal view returns (uint8) {
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSelector(IERC20.decimals.selector));
+        if (!ok || data.length < 32) return 18;
+        uint256 value = abi.decode(data, (uint256));
+        return value <= 77 ? uint8(value) : 18;
+    }
+
+    function _totalSupply(address token) internal view returns (uint256) {
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSelector(IERC20.totalSupply.selector));
+        return ok && data.length >= 32 ? abi.decode(data, (uint256)) : 0;
     }
 
     /// @dev Tolerates tokens whose symbol()/name() return bytes32 or revert.
